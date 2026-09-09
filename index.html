@@ -82,12 +82,30 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:12px 8px;
       </div>
       <div>
         <div class="field"><label>Document Name</label><input placeholder="e.g. Signed Agreement.pdf"></div>
-        <div class="field"><label>Reference Signature</label><div class="drop"><strong>Drop reference signature here</strong>PNG, JPG or PDF<br><button class="btn secondary" onclick="this.innerText='Reference selected ✓'">Browse Files</button></div></div>
-        <div class="field"><label>Document to Verify</label><div class="drop"><strong>Drop signed document here</strong>PDF, PNG or JPG<br><button class="btn secondary" onclick="this.innerText='Document selected ✓'">Browse Files</button></div></div>
+        <div class="field"><label>Reference Signature</label>
+          <div class="drop" id="referenceDrop">
+            <strong>Drop reference signature here</strong>
+            PNG, JPG or PDF
+            <br><br>
+            <input id="referenceFile" type="file" accept=".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,application/pdf" style="display:none">
+            <button type="button" class="btn secondary" onclick="document.getElementById('referenceFile').click()">Browse Files</button>
+            <div id="referenceStatus" class="small" style="margin-top:10px">No file selected</div>
+          </div>
+        </div>
+        <div class="field"><label>Document to Verify</label>
+          <div class="drop" id="documentDrop">
+            <strong>Drop signed document here</strong>
+            PDF, PNG or JPG
+            <br><br>
+            <input id="documentFile" type="file" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" style="display:none">
+            <button type="button" class="btn secondary" onclick="document.getElementById('documentFile').click()">Browse Files</button>
+            <div id="documentStatus" class="small" style="margin-top:10px">No file selected</div>
+          </div>
+        </div>
       </div>
     </div>
     <div class="actions"><button class="btn primary" onclick="runDemo()">Start Verification</button><button class="btn secondary" onclick="resetVerify()">Clear</button></div>
-    <div class="notice">This prototype demonstrates the workflow only. It does not perform a real forensic signature determination.</div>
+    <div class="notice">Uploads are functional in this browser prototype. The signature comparison itself is still a demo and does not perform a real forensic signature determination.</div>
   </div>
 </section>
 
@@ -133,8 +151,60 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:12px 8px;
 const titles={dashboard:["Dashboard","Signature comparison activity and verification overview"],verify:["New Verification","Upload a document and reference signature for comparison"],results:["Verification Results","Review the AI-assisted comparison assessment"],library:["Reference Library","Manage trusted reference signatures"],history:["Verification History","Search verification events and audit activity"],reports:["Reports","Operational performance and quality metrics"],admin:["Administration","System configuration and governance controls"]};
 function show(id){document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));document.getElementById(id).classList.add('active');document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.view===id));document.getElementById('pageTitle').innerText=titles[id][0];document.getElementById('pageSub').innerText=titles[id][1]}
 document.querySelectorAll('.nav button').forEach(b=>b.addEventListener('click',()=>show(b.dataset.view)));
-function runDemo(){show('results');}
-function resetVerify(){document.querySelectorAll('#verify input').forEach(x=>{if(!x.readOnly)x.value=''})}
+function formatBytes(bytes){
+  if(bytes < 1024) return bytes + " B";
+  if(bytes < 1024*1024) return (bytes/1024).toFixed(1) + " KB";
+  return (bytes/(1024*1024)).toFixed(1) + " MB";
+}
+function showFile(inputId, statusId){
+  const input=document.getElementById(inputId), status=document.getElementById(statusId);
+  const file=input.files[0];
+  if(!file){status.textContent="No file selected";return;}
+  const allowed=["application/pdf","image/png","image/jpeg"];
+  if(!allowed.includes(file.type)){
+    input.value="";
+    status.textContent="Unsupported file type. Use PDF, PNG or JPG.";
+    return;
+  }
+  if(file.size > 15*1024*1024){
+    input.value="";
+    status.textContent="File is larger than 15 MB.";
+    return;
+  }
+  status.innerHTML="<strong>"+file.name+"</strong> · "+formatBytes(file.size)+" · Ready";
+}
+document.getElementById("referenceFile").addEventListener("change",()=>showFile("referenceFile","referenceStatus"));
+document.getElementById("documentFile").addEventListener("change",()=>showFile("documentFile","documentStatus"));
+
+["referenceDrop","documentDrop"].forEach(dropId=>{
+  const drop=document.getElementById(dropId);
+  const input=dropId==="referenceDrop" ? document.getElementById("referenceFile") : document.getElementById("documentFile");
+  const statusId=dropId==="referenceDrop" ? "referenceStatus" : "documentStatus";
+  drop.addEventListener("dragover",e=>{e.preventDefault();drop.style.borderColor="#315efb";});
+  drop.addEventListener("dragleave",()=>drop.style.borderColor="#b9c3d3");
+  drop.addEventListener("drop",e=>{
+    e.preventDefault();drop.style.borderColor="#b9c3d3";
+    if(e.dataTransfer.files.length){
+      input.files=e.dataTransfer.files;
+      showFile(input.id,statusId);
+    }
+  });
+});
+
+function runDemo(){
+  const person=document.getElementById("personId").value.trim();
+  const ref=document.getElementById("referenceFile").files[0];
+  const doc=document.getElementById("documentFile").files[0];
+  if(!person){alert("Please enter a Person / Customer ID.");return;}
+  if(!ref){alert("Please upload the reference signature.");return;}
+  if(!doc){alert("Please upload the document to verify.");return;}
+  show('results');
+}
+function resetVerify(){
+  document.querySelectorAll('#verify input').forEach(x=>{if(!x.readOnly)x.value=''});
+  document.getElementById("referenceStatus").textContent="No file selected";
+  document.getElementById("documentStatus").textContent="No file selected";
+}
 </script>
 </body>
 </html>
