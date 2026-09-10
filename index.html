@@ -53,7 +53,7 @@
 <div class="step"><span>2</span><div><b>Upload source files</b><br><small class="hint">Use PNG/JPG images for actual browser-side comparison. PDFs are accepted for record keeping; production PDF signature extraction should be connected to a document service.</small></div></div>
 <div class="formgrid">
 <div class="field"><label>Reference Signature / Reference Image *</label>
-<div class="drop" id="refDrop"><strong>Drop file here</strong>PNG, JPG or PDF<br><br><button class="btn secondary" type="button" onclick="refFile.click()">Browse Files</button><input id="refFile" type="file" hidden accept=".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,application/pdf"><div id="refInfo" class="fileinfo">No file selected</div></div></div>
+<div class="drop" id="refDrop"><strong>Drop file here</strong>PNG, JPG or PDF<br><br><button class="btn secondary" type="button" onclick="refFile.click()">Browse Files</button><input id="refFile" type="file" hidden accept=".png,.jpg,.jpeg,image/png,image/jpeg"><div id="refInfo" class="fileinfo">No file selected</div></div></div>
 <div class="field"><label>Document to Verify *</label>
 <div class="drop" id="docDrop"><strong>Drop file here</strong>PNG, JPG or PDF<br><br><button class="btn secondary" type="button" onclick="docFile.click()">Browse Files</button><input id="docFile" type="file" hidden accept=".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,application/pdf"><div id="docInfo" class="fileinfo">No file selected</div></div></div>
 </div>
@@ -94,6 +94,7 @@ history:["Verification History","Search completed verification activity"],
 reports:["Reports","Operational metrics from this browser"],
 admin:["Administration","Prototype controls and governance"]
 };
+const API="https://signatureverify-ai-backend.onrender.com";
 const $=id=>document.getElementById(id);
 let refImage=null, docImage=null, lastResult=null;
 let records=JSON.parse(localStorage.getItem("sv_records")||"[]");
@@ -144,24 +145,55 @@ function compareVectors(a,b){
  const pixel=1-Math.min(1,mse*3);
  return Math.max(0,Math.min(100,(corr+1)*35+pixel*30));
 }
-function compare(){
+async function compare(){
  const person=$("person").value.trim(), rf=$("refFile").files[0], df=$("docFile").files[0];
  if(!person){alert("Enter Person / Customer ID.");return}
  if(!rf||!df){alert("Upload both reference and submitted files.");return}
- if(!refImage||!docImage){alert("For actual browser-side comparison, please upload PNG/JPG signature images. PDFs can be stored but this prototype does not extract signatures from PDFs.");return}
- const score=compareVectors(signatureVector(refImage),signatureVector(docImage));
- let status=score>=78?"MATCH":score>=52?"REVIEW REQUIRED":"MISMATCH";
- const id="SV-"+Date.now().toString().slice(-7);
- const rec={id,person,document:$("docname").value.trim()||df.name,type:$("doctype").value,score:+score.toFixed(1),status,date:new Date().toISOString(),reference:rf.name,submitted:df.name};
- records.unshift(rec);records=records.slice(0,500);localStorage.setItem("sv_records",JSON.stringify(records));lastResult=rec;renderResult(rec);show("results");
+ const button=document.querySelector('#verify .primary');
+ button.disabled=true; button.textContent="Processing…";
+ try{
+  const fd=new FormData();
+  fd.append("reference_signature",rf);
+  fd.append("signed_document",df);
+  const response=await fetch(API+"/api/verify",{method:"POST",body:fd});
+  const data=await response.json();
+  if(!response.ok) throw new Error(data.detail||"Verification failed.");
+
+  const status=data.decision==="REVIEW_REQUIRED"?"REVIEW REQUIRED":data.decision;
+  const rec={
+   id:data.verification_id,
+   person,
+   document:$("docname").value.trim()||df.name,
+   type:$("doctype").value,
+   score:+Number(data.confidence_score).toFixed(1),
+   status,
+   date:data.timestamp,
+   reference:rf.name,
+   submitted:df.name,
+   engine:data.comparison_method,
+   extraction:data.extraction_method,
+   message:data.message
+  };
+  records.unshift(rec);
+  records=records.slice(0,500);
+  localStorage.setItem("sv_records",JSON.stringify(records));
+  lastResult=rec;
+  renderResult(rec);
+  show("results");
+ }catch(e){
+  alert("Verification error: "+e.message);
+ }finally{
+  button.disabled=false;
+  button.textContent="Run Signature Comparison";
+ }
 }
 function renderResult(r){
  const cls=r.status==="MATCH"?"green":r.status==="REVIEW REQUIRED"?"amber":"red";
  const badge=r.status==="MATCH"?"g":r.status==="REVIEW REQUIRED"?"a":"r";
  $("resultPanel").innerHTML=`<h2>${r.id}</h2>
- <div class="result-head"><div class="score">${r.score}%</div><div><h2 class="${cls}" style="margin:0">${r.status}</h2><p class="hint">Browser-side image similarity assessment · ${new Date(r.date).toLocaleString()}</p></div></div>
+ <div class="result-head"><div class="score">${r.score}%</div><div><h2 class="${cls}" style="margin:0">${r.status}</h2><p class="hint">AI-assisted backend comparison · ${new Date(r.date).toLocaleString()}</p></div></div>
  <div class="preview-grid" style="margin-top:20px"><div><label class="k">REFERENCE</label><div class="preview"><img src="${URL.createObjectURL($("refFile").files[0])}"></div></div><div><label class="k">SUBMITTED</label><div class="preview"><img src="${URL.createObjectURL($("docFile").files[0])}"></div></div></div>
- <h2 style="margin-top:20px">Assessment</h2><div class="obs"><div>Image similarity <b>${r.score}%</b></div><div>Classification <b class="${cls}">${r.status}</b></div><div>Reference file <b>${escapeHtml(r.reference)}</b></div><div>Submitted file <b>${escapeHtml(r.submitted)}</b></div></div>
+ <h2 style="margin-top:20px">Assessment</h2><div class="obs"><div>Confidence score <b>${r.score}%</b></div><div>Classification <b class="${cls}">${r.status}</b></div><div>Reference file <b>${escapeHtml(r.reference)}</b></div><div>Submitted file <b>${escapeHtml(r.submitted)}</b></div></div>
  <div class="notice" style="margin-top:16px"><b>Important:</b> This is an AI-assisted prototype comparison, not a forensic determination of authorship or legal authenticity. Review uncertain results before taking action.</div>
  <div style="margin-top:16px"><button class="btn primary" onclick="openDetail('${r.id}')">View Audit Detail</button> <button class="btn secondary" onclick="show('verify')">New Verification</button></div>`;
 }
